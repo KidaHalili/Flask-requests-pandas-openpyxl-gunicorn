@@ -50,7 +50,8 @@ def index():
         defaults={
             "cons": 6.5,     # L / 100km
             "price": 190     # lek / L (Kastrati ref)
-        }
+        },
+        google_key=GOOGLE_API_KEY
     )
 
 
@@ -119,4 +120,5 @@ def export_excel():
 # =====================================================
 if __name__ == "__main__":
     app.run(debug=True)
+
 
