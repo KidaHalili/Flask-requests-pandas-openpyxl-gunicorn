@@ -2,13 +2,14 @@ from flask import Flask, render_template, request, jsonify, send_file
 import requests
 import pandas as pd
 import io
+import os
 
 app = Flask(__name__)
 
 # =====================================================
 # KONFIGURIME
 # =====================================================
-GOOGLE_API_KEY = "AIzaSyCzJjTuFcmWgN27CbeuKPUopS02HrQXctA"
+GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY")
 
 # Koordinata fikse – Shkolla Profesionale "Kristo Isak", Berat
 ORIGIN_COORDS = "40.70858,19.94492"
@@ -118,3 +119,4 @@ def export_excel():
 # =====================================================
 if __name__ == "__main__":
     app.run(debug=True)
+
