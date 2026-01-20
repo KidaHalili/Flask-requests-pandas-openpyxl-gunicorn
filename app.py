@@ -1,27 +1,35 @@
-from flask import Flask, render_template, request, jsonify, send_file
-import requests
-import pandas as pd
-import io
 import os
+import requests
+from flask import Flask, render_template, request, jsonify, send_file
+import pandas as pd
+from io import BytesIO
 
 app = Flask(__name__)
 
-# =====================================================
-# KONFIGURIME
-# =====================================================
-GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY")
-
-# Koordinata fikse – Shkolla Profesionale "Kristo Isak", Berat
+# ================= CONFIG =================
 ORIGIN_COORDS = "40.70858,19.94492"
-ORIGIN_LABEL = 'Shkolla "Kristo Isak", Rruga Desaret, Berat'
+ORIGIN_LABEL = 'Shkolla "Kristo Isak", PX38+257, Rruga Desaret, Berat'
+DEFAULT_CONS = 6.5
+DEFAULT_PRICE = 190.0
+
+GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY")
+# ==========================================
+
+@app.route("/")
+def index():
+    return render_template(
+        "index.html",
+        origin=ORIGIN_LABEL,
+        defaults={
+            "cons": DEFAULT_CONS,
+            "price": DEFAULT_PRICE
+        },
+        google_key=GOOGLE_API_KEY
+    )
 
 
-# =====================================================
-# FUNKSION: DISTANCA NGA GOOGLE DIRECTIONS
-# =====================================================
 def directions_distance_km(place_id: str) -> float:
     url = "https://maps.googleapis.com/maps/api/directions/json"
-
     params = {
         "origin": ORIGIN_COORDS,
         "destination": f"place_id:{place_id}",
@@ -29,96 +37,55 @@ def directions_distance_km(place_id: str) -> float:
         "key": GOOGLE_API_KEY
     }
 
-    r = requests.get(url, params=params, timeout=25).json()
+    r = requests.get(url, params=params, timeout=20).json()
 
     if r.get("status") != "OK":
-        msg = r.get("error_message") or r.get("status") or "Directions error"
-        raise RuntimeError(msg)
+        raise RuntimeError(r.get("error_message") or r.get("status"))
 
     meters = r["routes"][0]["legs"][0]["distance"]["value"]
-    return meters / 1000.0
+    return meters / 1000
 
 
-# =====================================================
-# ROUTE: HOME (INDEX)
-# =====================================================
-@app.route("/")
-def index():
-    return render_template(
-        "index.html",
-        origin=ORIGIN_LABEL,
-        defaults={
-            "cons": 6.5,     # L / 100km
-            "price": 190     # lek / L (Kastrati ref)
-        },
-        google_key=GOOGLE_API_KEY
-    )
-
-
-# =====================================================
-# API: LLOGARITJE PËR NJË RRESHT
-# (thirret nga JS sa herë zgjidhet destinacioni)
-# =====================================================
 @app.route("/api/calc", methods=["POST"])
 def api_calc():
-    data = request.json or {}
-
-    place_id = data.get("place_id")
-    trip = data.get("trip", "oneway")      # oneway | round
-    cons = float(data.get("cons", 6.5))    # L/100km
-    price = float(data.get("price", 190))  # lek/L
-
-    if not place_id:
-        return jsonify(ok=False, error="Place ID mungon"), 400
-
     try:
-        km = directions_distance_km(place_id)
+        data = request.json
+        km = directions_distance_km(data["place_id"])
+
+        if data.get("trip") == "round":
+            km *= 2
+
+        cons = float(data["cons"])
+        price = float(data["price"])
+
+        fuel = km * cons / 100
+        cost = fuel * price
+
+        return jsonify({
+            "ok": True,
+            "km": round(km, 2),
+            "fuel_l": round(fuel, 2),
+            "cost_lek": round(cost)
+        })
     except Exception as e:
-        return jsonify(ok=False, error=str(e)), 400
-
-    if trip == "round":
-        km *= 2
-
-    fuel_l = (km * cons) / 100
-    cost_lek = fuel_l * price
-
-    return jsonify(
-        ok=True,
-        km=round(km, 3),
-        fuel_l=round(fuel_l, 3),
-        cost_lek=round(cost_lek, 1)
-    )
+        return jsonify({"ok": False, "error": str(e)}), 400
 
 
-# =====================================================
-# API: EXPORT EXCEL
-# =====================================================
 @app.route("/export_excel", methods=["POST"])
 def export_excel():
-    data = request.json or {}
-    rows = data.get("rows", [])
+    payload = request.json
+    df = pd.DataFrame(payload["rows"])
 
-    if not rows:
-        return jsonify({"error": "Nuk ka të dhëna"}), 400
-
-    df = pd.DataFrame(rows)
-
-    output = io.BytesIO()
-    df.to_excel(output, index=False, sheet_name="Raport Distanca & Karburant")
-    output.seek(0)
+    out = BytesIO()
+    df.to_excel(out, index=False)
+    out.seek(0)
 
     return send_file(
-        output,
+        out,
         as_attachment=True,
-        download_name="raport_distanca_karburant.xlsx",
-        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        download_name="raport_distanca_karburant.xlsx"
     )
 
 
-# =====================================================
-# RUN
-# =====================================================
 if __name__ == "__main__":
     app.run(debug=True)
-
-
